@@ -3,8 +3,6 @@ import json
 import time
 import datetime
 import requests
-import tempfile
-import shutil
 from enum import Enum
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -21,7 +19,6 @@ class Config(Enum):
     PROFILE_UPDATE_URL = 'https://www.naukri.com/cloudgateway-mynaukri/resman-aggregator-services/v1/users/self/fullprofiles'
     USERNAME = 'anubhav.tomar.at@gmail.com'
     PASSWORD = '12345@zxcvB'
-    # Replace with your actual profile id
     PROFILE_ID = '82149711e52eb452740ca2b333163638c0b88703c4c3bdf85c4f31944917d4da'
     TOKEN_LOCAL_STORAGE_KEY = 'access_token'
     TOP_RIGHT_LOGIN_BUTTON_ID = "login_Layer"
@@ -31,7 +28,7 @@ class Config(Enum):
 
 def is_token_expired(token, threshold_minutes=5):
     try:
-        # Decode without verifying the signature.
+        # Decode token without verifying the signature.
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload.get('exp')
         if exp_timestamp:
@@ -57,17 +54,17 @@ def save_token(token):
 
 def login_and_get_token():
     chrome_options = Options()
-    # Uncomment the following line for headless mode in production:
-    chrome_options.add_argument("--headless")
+    # Uncomment the line below when running in headless mode (e.g., in GitHub Actions).
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     
-    # Create a unique temporary directory for user data
-    temp_dir = tempfile.mkdtemp()
-    print("Using temporary user data directory:", temp_dir)
-    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+    # Use a unique temporary user-data directory to avoid conflicts.
+    user_data_dir = f"/tmp/chrome-user-data-{int(time.time())}"
+    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
     
-    # Set Chrome binary location if needed.
+    # Specify binary location if needed
     chrome_options.binary_location = os.getenv("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     
     service = Service(ChromeDriverManager().install())
@@ -76,17 +73,16 @@ def login_and_get_token():
     try:
         driver.get(Config.LOGIN_URL.value)
         driver.maximize_window()
-        wait = WebDriverWait(driver, 30)
+        wait = WebDriverWait(driver, 60)  # Increased timeout to 60 seconds
         
-        # Click the top right login button.
+        # Wait for the top-right login button and click it.
         top_login = wait.until(EC.element_to_be_clickable((By.ID, Config.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
         driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
         top_login.click()
         
-        time.sleep(3)  # Wait for the login modal to appear.
-        
-        email_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.EMAIL_INPUT_FIELD.value)))
-        password_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.PASSWORD_INPUT_FIELD.value)))
+        # Wait for the login modal to appear by waiting for the email and password fields.
+        email_field = wait.until(EC.visibility_of_element_located((By.XPATH, Config.EMAIL_INPUT_FIELD.value)))
+        password_field = wait.until(EC.visibility_of_element_located((By.XPATH, Config.PASSWORD_INPUT_FIELD.value)))
         
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
@@ -94,7 +90,8 @@ def login_and_get_token():
         final_login = wait.until(EC.element_to_be_clickable((By.XPATH, Config.FINAL_LOGIN_BUTTON.value)))
         final_login.click()
         
-        time.sleep(10)  # Wait for the login process to complete.
+        # Wait for an element that indicates login has completed.
+        wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
         
         # Try extracting the token from localStorage.
         token = driver.execute_script(
@@ -105,7 +102,7 @@ def login_and_get_token():
             save_token(token)
             return token
         
-        # Fallback: extract token from cookies.
+        # Fallback: try retrieving the token from cookies.
         cookies = driver.get_cookies()
         for cookie in cookies:
             if cookie.get('name') == 'nauk_at':
@@ -120,9 +117,6 @@ def login_and_get_token():
         return token
     finally:
         driver.quit()
-        # Clean up the temporary user data directory
-        shutil.rmtree(temp_dir)
-        print("Temporary user data directory removed.")
 
 def get_token():
     token = load_token()
