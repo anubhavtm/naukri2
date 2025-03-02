@@ -3,6 +3,7 @@ import json
 import time
 import datetime
 import requests
+import tempfile
 from enum import Enum
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -11,8 +12,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-
-# Make sure you don't have a local file named jwt.py that conflicts with PyJWT.
 import jwt
 
 class Config(Enum):
@@ -31,7 +30,7 @@ class Config(Enum):
 
 def is_token_expired(token, threshold_minutes=5):
     try:
-        # Decode without verifying the signature.
+        # Decode the token without verifying the signature
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload.get('exp')
         if exp_timestamp:
@@ -57,10 +56,16 @@ def save_token(token):
 
 def login_and_get_token():
     chrome_options = Options()
-    # chrome_options.add_argument("--headless")  # Commented out for debugging; uncomment for headless mode.
+    # Uncomment the following line for headless mode in production
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
-    # Set the binary location if needed; adjust if Chrome is installed in a custom location.
+    
+    # Create a temporary user data directory to avoid conflicts
+    temp_dir = tempfile.mkdtemp()
+    chrome_options.add_argument(f"--user-data-dir={temp_dir}")
+    
+    # Set Chrome binary location if necessary
     chrome_options.binary_location = os.getenv("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     
     service = Service(ChromeDriverManager().install())
@@ -71,25 +76,25 @@ def login_and_get_token():
         driver.maximize_window()
         wait = WebDriverWait(driver, 30)
         
-        # Click on the login button.
+        # Click the top right login button
         top_login = wait.until(EC.element_to_be_clickable((By.ID, Config.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
         driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
         top_login.click()
         
-        time.sleep(3)  # Wait for the login modal to appear.
+        time.sleep(3)  # Allow modal to appear
         
+        # Enter email and password
         email_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.PASSWORD_INPUT_FIELD.value)))
-        
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
         final_login = wait.until(EC.element_to_be_clickable((By.XPATH, Config.FINAL_LOGIN_BUTTON.value)))
         final_login.click()
         
-        time.sleep(10)  # Wait for the login process to complete.
+        time.sleep(10)  # Wait for login to complete
         
-        # Try extracting the token from localStorage.
+        # Try extracting token from localStorage
         token = driver.execute_script(
             f"return window.localStorage.getItem('{Config.TOKEN_LOCAL_STORAGE_KEY.value}');"
         )
@@ -98,7 +103,7 @@ def login_and_get_token():
             save_token(token)
             return token
         
-        # Fallback: extract token from cookies.
+        # Fallback: extract token from cookies
         cookies = driver.get_cookies()
         for cookie in cookies:
             if cookie.get('name') == 'nauk_at':
