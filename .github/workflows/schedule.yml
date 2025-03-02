@@ -2,10 +2,10 @@ name: Update Naukri Resume Headline
 
 on:
   schedule:
-    # 10 AM IST is 4:30 AM UTC, 1 PM IST is 7:30 AM UTC.
+    # 10 AM IST is 4:30 AM UTC and 1 PM IST is 7:30 AM UTC.
     - cron: '30 4 * * *'
     - cron: '30 7 * * *'
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:  # This allows manual triggering
 
 jobs:
   update-resume:
