@@ -58,7 +58,7 @@ def save_token(token):
 def login_and_get_token():
     chrome_options = Options()
     # Uncomment the following line for headless mode in production:
-    # chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     
