@@ -4,6 +4,7 @@ import time
 import datetime
 import requests
 import tempfile
+import shutil
 from enum import Enum
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -30,7 +31,7 @@ class Config(Enum):
 
 def is_token_expired(token, threshold_minutes=5):
     try:
-        # Decode the token without verifying the signature
+        # Decode without verifying the signature.
         payload = jwt.decode(token, options={"verify_signature": False})
         exp_timestamp = payload.get('exp')
         if exp_timestamp:
@@ -56,16 +57,17 @@ def save_token(token):
 
 def login_and_get_token():
     chrome_options = Options()
-    # Uncomment the following line for headless mode in production
+    # Uncomment the following line for headless mode in production:
     # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     
-    # Create a temporary user data directory to avoid conflicts
+    # Create a unique temporary directory for user data
     temp_dir = tempfile.mkdtemp()
+    print("Using temporary user data directory:", temp_dir)
     chrome_options.add_argument(f"--user-data-dir={temp_dir}")
     
-    # Set Chrome binary location if necessary
+    # Set Chrome binary location if needed.
     chrome_options.binary_location = os.getenv("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     
     service = Service(ChromeDriverManager().install())
@@ -76,25 +78,25 @@ def login_and_get_token():
         driver.maximize_window()
         wait = WebDriverWait(driver, 30)
         
-        # Click the top right login button
+        # Click the top right login button.
         top_login = wait.until(EC.element_to_be_clickable((By.ID, Config.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
         driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
         top_login.click()
         
-        time.sleep(3)  # Allow modal to appear
+        time.sleep(3)  # Wait for the login modal to appear.
         
-        # Enter email and password
         email_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.element_to_be_clickable((By.XPATH, Config.PASSWORD_INPUT_FIELD.value)))
+        
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
         final_login = wait.until(EC.element_to_be_clickable((By.XPATH, Config.FINAL_LOGIN_BUTTON.value)))
         final_login.click()
         
-        time.sleep(10)  # Wait for login to complete
+        time.sleep(10)  # Wait for the login process to complete.
         
-        # Try extracting token from localStorage
+        # Try extracting the token from localStorage.
         token = driver.execute_script(
             f"return window.localStorage.getItem('{Config.TOKEN_LOCAL_STORAGE_KEY.value}');"
         )
@@ -103,7 +105,7 @@ def login_and_get_token():
             save_token(token)
             return token
         
-        # Fallback: extract token from cookies
+        # Fallback: extract token from cookies.
         cookies = driver.get_cookies()
         for cookie in cookies:
             if cookie.get('name') == 'nauk_at':
@@ -118,6 +120,9 @@ def login_and_get_token():
         return token
     finally:
         driver.quit()
+        # Clean up the temporary user data directory
+        shutil.rmtree(temp_dir)
+        print("Temporary user data directory removed.")
 
 def get_token():
     token = load_token()
@@ -165,7 +170,6 @@ def update_resume_headline(token):
         "profileId": Config.PROFILE_ID.value
     }
     
-    # Debug: Print headers and payload
     print("Sending API request with headers:")
     print(json.dumps(headers, indent=4))
     print("Payload:")
