@@ -12,6 +12,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import TimeoutException
 
 # Enum for general configuration variables (non-UI parameters)
 class Config(Enum):
@@ -38,9 +39,9 @@ def login_and_capture_logs():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    # Set a fixed window size.
     chrome_options.add_argument("--window-size=1920,1080")
-    
-    # Set a user-agent to mimic a regular browser.
+    # Set a standard user-agent to mimic a normal desktop browser.
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     
@@ -59,28 +60,44 @@ def login_and_capture_logs():
     
     try:
         driver.get(Config.LOGIN_URL.value)
-        wait = WebDriverWait(driver, 60)  # Allow ample time for login
+        wait = WebDriverWait(driver, 60)
         
-        # Wait for the top-right login button by presence.
-        top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
-        driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
-        # Use JavaScript to click the button in headless mode.
-        driver.execute_script("arguments[0].click();", top_login)
+        # Try to locate and click the top-right login button.
+        try:
+            top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
+            driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
+            driver.execute_script("arguments[0].click();", top_login)
+            print("Clicked the login button.")
+        except TimeoutException as te:
+            print("Login button not found. Checking if already logged in...")
+            # If the login button is not found, try verifying if user is already logged in.
+            try:
+                wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
+                print("User appears already logged in; skipping login click.")
+            except TimeoutException:
+                print("Login button not found and user is not logged in. Exiting.")
+                raise te
         
-        # Wait for the login modal and fill in the credentials.
+        # Fill in the login form.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
-        # Click the final login button via JavaScript click.
-        final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
-        driver.execute_script("arguments[0].click();", final_login)
+        # Click the final login button.
+        try:
+            final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
+            driver.execute_script("arguments[0].click();", final_login)
+            print("Clicked the final login button.")
+        except TimeoutException as te:
+            print("Final login button not found. Exiting.")
+            raise te
         
-        # Wait for an element that confirms login success.
+        # Wait for login confirmation element.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
+        print("Login confirmed.")
         
-        # Allow some extra time for network activity to be logged.
+        # Allow extra time for network activity to be logged.
         time.sleep(5)
         
         # Retrieve performance logs.
@@ -116,7 +133,7 @@ def update_resume_headline(token):
     else:
         updated_bio = base_bio.rstrip('.') if base_bio.endswith('.') else base_bio
     
-    # Ensure that 'Bearer' is only present once.
+    # Ensure 'Bearer' appears only once.
     if token.startswith("Bearer "):
         auth_token = token
     else:
