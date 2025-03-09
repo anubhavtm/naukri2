@@ -4,6 +4,7 @@ import json
 import logging
 import datetime
 import requests
+import re
 from enum import Enum
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -40,12 +41,9 @@ def login_and_capture_logs():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    
-    # Set a standard user-agent.
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    
-    # The following options help to avoid detection as an automated browser.
+    # Options to help avoid automation detection.
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -54,10 +52,9 @@ def login_and_capture_logs():
     user_data_dir = f"/tmp/chrome-user-data-{int(time.time())}"
     chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
     
-    # Set logging preferences via options (Selenium 4+)
+    # Set logging preferences via options.
     chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
     
-    # Specify binary location if needed.
     chrome_options.binary_location = os.getenv("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     
     service = Service(ChromeDriverManager().install())
@@ -67,28 +64,25 @@ def login_and_capture_logs():
         driver.get(Config.LOGIN_URL.value)
         wait = WebDriverWait(driver, 60)
         
-        # Try clicking the top-right login button.
         try:
             top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
             driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
             driver.execute_script("arguments[0].click();", top_login)
             print("Clicked the login button.")
         except TimeoutException as te:
-            print("Login button not found; checking if already logged in.")
+            print("Login button not found; checking if already logged in...")
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
-                print("User already logged in; skipping login.")
+                print("User appears already logged in; skipping login.")
             except TimeoutException:
-                print("Not logged in and login button missing; aborting.")
+                print("Login button not found and user is not logged in. Aborting.")
                 raise te
         
-        # Fill in login details.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
-        # Click final login button.
         try:
             final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
             driver.execute_script("arguments[0].click();", final_login)
@@ -97,15 +91,26 @@ def login_and_capture_logs():
             print("Final login button not found; aborting.")
             raise te
         
-        # Wait for login confirmation.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
         print("Login confirmed.")
         
         time.sleep(5)
         logs = driver.get_log("performance")
-        return logs
+        return logs, driver  # also return driver for fallback extraction
     finally:
-        driver.quit()
+        # Note: We'll not quit the driver here if we need it for fallback extraction.
+        pass
+
+def extract_token_from_local_storage(driver):
+    # Attempt to get all keys from local storage
+    keys = driver.execute_script("return Object.keys(window.localStorage);")
+    for key in keys:
+        value = driver.execute_script(f"return window.localStorage.getItem('{key}');")
+        # A basic heuristic: JWT tokens typically have two dots
+        if value and value.count('.') == 2 and len(value) > 100:
+            print(f"Found possible JWT token in local storage under key '{key}': {value[:30]}...")
+            return value
+    return None
 
 def find_bearer_tokens(logs):
     tokens = []
@@ -134,10 +139,7 @@ def update_resume_headline(token):
     else:
         updated_bio = base_bio.rstrip('.') if base_bio.endswith('.') else base_bio
     
-    if token.startswith("Bearer "):
-        auth_token = token
-    else:
-        auth_token = f"Bearer {token}"
+    auth_token = token if token.startswith("Bearer ") else f"Bearer {token}"
     
     headers = {
         'accept': 'application/json',
@@ -176,17 +178,24 @@ def update_resume_headline(token):
     return response
 
 def main():
-    logs = login_and_capture_logs()
+    logs, driver = login_and_capture_logs()
     tokens = find_bearer_tokens(logs)
     if tokens:
         token = tokens[0]
-        print("Found Bearer token:")
+        print("Found Bearer token from logs:")
         print(token)
+    else:
+        print("No Bearer token found in logs; checking local storage...")
+        token = extract_token_from_local_storage(driver)
+    
+    driver.quit()  # now we can safely quit the driver
+
+    if token:
         response = update_resume_headline(token)
         print("API Response Code:", response.status_code)
         print("API Response Body:", response.text)
     else:
-        print("No Bearer tokens found.")
+        print("No JWT token found. Aborting API call.")
 
 if __name__ == "__main__":
     main()
