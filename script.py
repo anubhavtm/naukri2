@@ -4,7 +4,6 @@ import json
 import logging
 import datetime
 import requests
-import re
 from enum import Enum
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -41,14 +40,12 @@ def login_and_capture_logs():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    # Set a standard user-agent.
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    # Additional flags to help avoid automation detection.
+    # Additional flags to avoid detection.
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-    # Add remote debugging port.
     chrome_options.add_argument("--remote-debugging-port=9222")
     
     # Use a unique temporary user-data directory.
@@ -83,11 +80,13 @@ def login_and_capture_logs():
                 print("Login button not found and user is not logged in. Aborting.")
                 raise te
         
+        # Fill in the login form.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
+        # Click the final login button.
         try:
             final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
             driver.execute_script("arguments[0].click();", final_login)
@@ -96,14 +95,16 @@ def login_and_capture_logs():
             print("Final login button not found; aborting.")
             raise te
         
+        # Wait for login confirmation.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
         print("Login confirmed.")
         
+        # Allow extra time for network activity to be logged.
         time.sleep(5)
         logs = driver.get_log("performance")
-        return logs, driver  # return driver for potential fallback extraction
+        return logs, driver
     finally:
-        # Note: Don't quit driver here if fallback extraction is needed.
+        # Do not quit driver here if fallback extraction is needed.
         pass
 
 def extract_token_from_local_storage(driver):
@@ -181,6 +182,51 @@ def update_resume_headline(token):
     response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data)
     return response
 
+def update_resume_headline_using_cookies(cookies):
+    base_bio = Config.BASE_BIO.value
+    day = datetime.datetime.now().day
+    if day % 2 == 1:
+        updated_bio = base_bio if base_bio.endswith('.') else base_bio + '.'
+    else:
+        updated_bio = base_bio.rstrip('.') if base_bio.endswith('.') else base_bio
+    
+    headers = {
+        'accept': 'application/json',
+        'accept-language': 'en-US,en-GB;q=0.9,en;q=0.8,hi;q=0.7',
+        'appid': '105',
+        'clientid': 'd3skt0p',
+        'content-type': 'application/json',
+        'dnt': '1',
+        'origin': 'https://www.naukri.com',
+        'priority': 'u=1, i',
+        'referer': 'https://www.naukri.com/mnjuser/profile?id=&altresid&action=modalOpen',
+        'sec-ch-ua': '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'systemid': 'Naukri',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'x-http-method-override': 'PUT',
+        'x-requested-with': 'XMLHttpRequest'
+    }
+    
+    data = {
+        "profile": {"resumeHeadline": updated_bio},
+        "profileId": Config.PROFILE_ID.value
+    }
+    
+    cookies_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+    
+    print("Sending API request with headers:")
+    print(json.dumps(headers, indent=4))
+    print("Payload:")
+    print(json.dumps(data, indent=4))
+    
+    response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data, cookies=cookies_dict)
+    return response
+
 def main():
     logs, driver = login_and_capture_logs()
     tokens = find_bearer_tokens(logs)
@@ -188,18 +234,23 @@ def main():
         token = tokens[0]
         print("Found Bearer token from logs:")
         print(token)
+        response = update_resume_headline(token)
     else:
         print("No Bearer token found in logs; checking local storage...")
         token = extract_token_from_local_storage(driver)
+        if token:
+            print("Found token from local storage:")
+            print(token)
+            response = update_resume_headline(token)
+        else:
+            print("No token found in logs or local storage; using session cookies...")
+            cookies = driver.get_cookies()
+            response = update_resume_headline_using_cookies(cookies)
     
     driver.quit()
     
-    if token:
-        response = update_resume_headline(token)
-        print("API Response Code:", response.status_code)
-        print("API Response Body:", response.text)
-    else:
-        print("No JWT token found. Aborting API call.")
+    print("API Response Code:", response.status_code)
+    print("API Response Body:", response.text)
 
 if __name__ == "__main__":
     main()
