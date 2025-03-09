@@ -42,7 +42,7 @@ def login_and_capture_logs():
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    # Additional flags to avoid detection.
+    # Additional flags to help avoid automation detection.
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -62,27 +62,29 @@ def login_and_capture_logs():
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
     try:
+        print("Navigating to login URL...", flush=True)
         driver.get(Config.LOGIN_URL.value)
         wait = WebDriverWait(driver, 60)
         
-        # Try clicking the top-right login button.
+        # Attempt to click the top-right login button.
         try:
             top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
             driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
             driver.execute_script("arguments[0].click();", top_login)
-            print("Clicked the login button.")
+            print("Clicked the top-right login button.", flush=True)
         except TimeoutException as te:
-            print("Login button not found; checking if already logged in...")
+            print("Top-right login button not found; checking if already logged in...", flush=True)
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
-                print("User appears already logged in; skipping login.")
+                print("User appears already logged in; skipping login button click.", flush=True)
             except TimeoutException:
-                print("Login button not found and user is not logged in. Aborting.")
+                print("Top-right login button not found and user is not logged in. Aborting.", flush=True)
                 raise te
         
-        # Fill in the login form.
+        # Fill in login credentials.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
+        print("Filling in email and password...", flush=True)
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
@@ -90,34 +92,38 @@ def login_and_capture_logs():
         try:
             final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
             driver.execute_script("arguments[0].click();", final_login)
-            print("Clicked the final login button.")
+            print("Clicked the final login button.", flush=True)
         except TimeoutException as te:
-            print("Final login button not found; aborting.")
+            print("Final login button not found; aborting.", flush=True)
             raise te
         
-        # Wait for login confirmation.
+        # Wait for confirmation that login is successful.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
-        print("Login confirmed.")
+        print("Login confirmed.", flush=True)
         
-        # Allow extra time for network activity to be logged.
+        # Allow extra time for network activity.
         time.sleep(5)
         logs = driver.get_log("performance")
+        print(f"Captured {len(logs)} performance log entries.", flush=True)
         return logs, driver
     finally:
-        # Do not quit driver here if fallback extraction is needed.
+        # Do not quit the driver here if we need fallback extraction.
         pass
 
 def extract_token_from_local_storage(driver):
+    print("Attempting to extract token from local storage...", flush=True)
     keys = driver.execute_script("return Object.keys(window.localStorage);")
+    print("Local storage keys found:", keys, flush=True)
     for key in keys:
         value = driver.execute_script(f"return window.localStorage.getItem('{key}');")
-        # A simple heuristic: JWT tokens typically have two dots.
         if value and value.count('.') == 2 and len(value) > 100:
-            print(f"Found possible JWT token in local storage under key '{key}': {value[:30]}...")
+            print(f"Found possible JWT token in local storage under key '{key}': {value[:30]}...", flush=True)
             return value
+    print("No token found in local storage.", flush=True)
     return None
 
 def find_bearer_tokens(logs):
+    print("Scanning performance logs for Bearer tokens...", flush=True)
     tokens = []
     for entry in logs:
         try:
@@ -131,12 +137,15 @@ def find_bearer_tokens(logs):
                 if headers:
                     for key, value in headers.items():
                         if isinstance(value, str) and value.startswith("Bearer"):
+                            print(f"Found Bearer token in header '{key}': {value[:30]}...", flush=True)
                             tokens.append(value)
         except Exception as e:
             logging.error("Error processing log entry: %s", e)
+    print(f"Total Bearer tokens found: {len(tokens)}", flush=True)
     return tokens
 
 def update_resume_headline(token):
+    print("Preparing to update resume headline...", flush=True)
     base_bio = Config.BASE_BIO.value
     day = datetime.datetime.now().day
     if day % 2 == 1:
@@ -174,15 +183,16 @@ def update_resume_headline(token):
         "profileId": Config.PROFILE_ID.value
     }
     
-    print("Sending API request with headers:")
-    print(json.dumps(headers, indent=4))
-    print("Payload:")
-    print(json.dumps(data, indent=4))
+    print("Sending API request with headers:", flush=True)
+    print(json.dumps(headers, indent=4), flush=True)
+    print("Payload:", flush=True)
+    print(json.dumps(data, indent=4), flush=True)
     
     response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data)
     return response
 
 def update_resume_headline_using_cookies(cookies):
+    print("Updating resume headline using session cookies...", flush=True)
     base_bio = Config.BASE_BIO.value
     day = datetime.datetime.now().day
     if day % 2 == 1:
@@ -219,38 +229,43 @@ def update_resume_headline_using_cookies(cookies):
     
     cookies_dict = {cookie['name']: cookie['value'] for cookie in cookies}
     
-    print("Sending API request with headers:")
-    print(json.dumps(headers, indent=4))
-    print("Payload:")
-    print(json.dumps(data, indent=4))
+    print("Sending API request with headers (using cookies):", flush=True)
+    print(json.dumps(headers, indent=4), flush=True)
+    print("Payload:", flush=True)
+    print(json.dumps(data, indent=4), flush=True)
     
     response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data, cookies=cookies_dict)
     return response
 
 def main():
     logs, driver = login_and_capture_logs()
+    print("Finished login_and_capture_logs()", flush=True)
+    
     tokens = find_bearer_tokens(logs)
+    print(f"Tokens found in logs: {tokens}", flush=True)
+    
     if tokens:
         token = tokens[0]
-        print("Found Bearer token from logs:")
-        print(token)
+        print("Using Bearer token from logs:", flush=True)
+        print(token, flush=True)
         response = update_resume_headline(token)
     else:
-        print("No Bearer token found in logs; checking local storage...")
+        print("No Bearer token found in logs; checking local storage...", flush=True)
         token = extract_token_from_local_storage(driver)
         if token:
-            print("Found token from local storage:")
-            print(token)
+            print("Using token from local storage:", flush=True)
+            print(token, flush=True)
             response = update_resume_headline(token)
         else:
-            print("No token found in logs or local storage; using session cookies...")
+            print("No token found in logs or local storage; using session cookies...", flush=True)
             cookies = driver.get_cookies()
+            print("Cookies retrieved:", cookies, flush=True)
             response = update_resume_headline_using_cookies(cookies)
     
     driver.quit()
     
-    print("API Response Code:", response.status_code)
-    print("API Response Body:", response.text)
+    print("API Response Code:", response.status_code, flush=True)
+    print("API Response Body:", response.text, flush=True)
 
 if __name__ == "__main__":
     main()
