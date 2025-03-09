@@ -14,25 +14,53 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException
 
-# Enum for general configuration variables (non-UI parameters)
-class Config(Enum):
-    LOGIN_URL = 'https://www.naukri.com/'
-    USERNAME = 'anubhav.tomar.at@gmail.com'
-    PASSWORD = '12345@zxcvB'
-    PROFILE_UPDATE_URL = 'https://www.naukri.com/cloudgateway-mynaukri/resman-aggregator-services/v1/users/self/fullprofiles'
-    PROFILE_ID = '82149711e52eb452740ca2b333163638c0b88703c4c3bdf85c4f31944917d4da'
-    BASE_BIO = ("Experienced Software Development Engineer with over 5 years of experience "
-                "With a robust foundation in Java, Python, Spring Boot, MySQL, MongoDB, Redis, "
-                "Kafka, SNS and extensive use of AWS Cloud......z")
+# ---------------------------
+# GLOBAL CONFIGURATION
+# ---------------------------
+GLOBAL_CONFIG = {
+    "LOGIN_URL": "https://www.naukri.com/",
+    "PROFILE_UPDATE_URL": "https://www.naukri.com/cloudgateway-mynaukri/resman-aggregator-services/v1/users/self/fullprofiles"
+}
 
-# Enum for UI elements (input fields and buttons)
+# ---------------------------
+# USER SPECIFIC CONFIGURATION
+# ---------------------------
+# You can add multiple users here, code will iterate and process this one by one
+# Each user will have their unique profile_id which you can get by inpecting element 
+# and using network tab in your local while updating bio
+
+USER_CONFIGS = [
+    {
+        "username": "anubhav.tomar.at@gmail.com",
+        "password": "12345@zxcvB",
+        "profile_id": "82149711e52eb452740ca2b333163638c0b88703c4c3bdf85c4f31944917d4da",
+        "base_bio": ("Experienced Software Development Engineer with over 5 years of experience "
+                     "With a robust foundation in Java, Python, Spring Boot, MySQL, MongoDB, Redis, "
+                     "Kafka, SNS and extensive use of AWS Cloud......z")
+    },
+    {
+        "username": "anubhav.tomar.at@gmail.com",
+        "password": "12345@zxcvB",
+        "profile_id": "82149711e52eb452740ca2b333163638c0b88703c4c3bdf85c4f31944917d4da",
+        "base_bio": ("Experienced Software Development Engineer with over 5 years of experience "
+                     "With a robust foundation in Java, Python, Spring Boot, MySQL, MongoDB, Redis, "
+                     "Kafka, SNS and extensive use of AWS Cloud......z")
+    }
+]
+
+# ---------------------------
+# UI ELEMENT CONFIGURATION
+# ---------------------------
 class ButtonConfig(Enum):
     TOP_RIGHT_LOGIN_BUTTON_ID = "login_Layer"
     EMAIL_INPUT_FIELD = '//input[@placeholder="Enter your active Email ID / Username"]'
     PASSWORD_INPUT_FIELD = '//input[@placeholder="Enter your password"]'
     FINAL_LOGIN_BUTTON = '//button[contains(@class, "loginButton") and contains(text(),"Login")]'
 
-def login_and_capture_logs():
+# ---------------------------
+# FUNCTIONS
+# ---------------------------
+def login_and_capture_logs(username, password):
     chrome_options = Options()
     # Enable headless mode.
     chrome_options.add_argument("--headless")
@@ -42,7 +70,7 @@ def login_and_capture_logs():
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    # Additional flags to help avoid automation detection.
+    # Additional flags to reduce automation detection.
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
@@ -63,10 +91,9 @@ def login_and_capture_logs():
     
     try:
         print("Navigating to login URL...", flush=True)
-        driver.get(Config.LOGIN_URL.value)
+        driver.get(GLOBAL_CONFIG["LOGIN_URL"])
         wait = WebDriverWait(driver, 60)
         
-        # Attempt to click the top-right login button.
         try:
             top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
             driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
@@ -81,14 +108,12 @@ def login_and_capture_logs():
                 print("Top-right login button not found and user is not logged in. Aborting.", flush=True)
                 raise te
         
-        # Fill in login credentials.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
         print("Filling in email and password...", flush=True)
-        email_field.send_keys(Config.USERNAME.value)
-        password_field.send_keys(Config.PASSWORD.value)
+        email_field.send_keys(username)
+        password_field.send_keys(password)
         
-        # Click the final login button.
         try:
             final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
             driver.execute_script("arguments[0].click();", final_login)
@@ -97,17 +122,15 @@ def login_and_capture_logs():
             print("Final login button not found; aborting.", flush=True)
             raise te
         
-        # Wait for confirmation that login is successful.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
         print("Login confirmed.", flush=True)
         
-        # Allow extra time for network activity.
         time.sleep(5)
         logs = driver.get_log("performance")
         print(f"Captured {len(logs)} performance log entries.", flush=True)
         return logs, driver
     finally:
-        # Do not quit the driver here if we need fallback extraction.
+        # Do not quit the driver here if fallback extraction is needed.
         pass
 
 def extract_token_from_local_storage(driver):
@@ -144,9 +167,8 @@ def find_bearer_tokens(logs):
     print(f"Total Bearer tokens found: {len(tokens)}", flush=True)
     return tokens
 
-def update_resume_headline(token):
+def update_resume_headline(token, profile_id, base_bio):
     print("Preparing to update resume headline...", flush=True)
-    base_bio = Config.BASE_BIO.value
     day = datetime.datetime.now().day
     if day % 2 == 1:
         updated_bio = base_bio if base_bio.endswith('.') else base_bio + '.'
@@ -180,7 +202,7 @@ def update_resume_headline(token):
     
     data = {
         "profile": {"resumeHeadline": updated_bio},
-        "profileId": Config.PROFILE_ID.value
+        "profileId": profile_id
     }
     
     print("Sending API request with headers:", flush=True)
@@ -188,12 +210,11 @@ def update_resume_headline(token):
     print("Payload:", flush=True)
     print(json.dumps(data, indent=4), flush=True)
     
-    response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data)
+    response = requests.post(GLOBAL_CONFIG["PROFILE_UPDATE_URL"], headers=headers, json=data)
     return response
 
-def update_resume_headline_using_cookies(cookies):
+def update_resume_headline_using_cookies(cookies, profile_id, base_bio):
     print("Updating resume headline using session cookies...", flush=True)
-    base_bio = Config.BASE_BIO.value
     day = datetime.datetime.now().day
     if day % 2 == 1:
         updated_bio = base_bio if base_bio.endswith('.') else base_bio + '.'
@@ -224,7 +245,7 @@ def update_resume_headline_using_cookies(cookies):
     
     data = {
         "profile": {"resumeHeadline": updated_bio},
-        "profileId": Config.PROFILE_ID.value
+        "profileId": profile_id
     }
     
     cookies_dict = {cookie['name']: cookie['value'] for cookie in cookies}
@@ -234,38 +255,38 @@ def update_resume_headline_using_cookies(cookies):
     print("Payload:", flush=True)
     print(json.dumps(data, indent=4), flush=True)
     
-    response = requests.post(Config.PROFILE_UPDATE_URL.value, headers=headers, json=data, cookies=cookies_dict)
+    response = requests.post(GLOBAL_CONFIG["PROFILE_UPDATE_URL"], headers=headers, json=data, cookies=cookies_dict)
     return response
 
 def main():
-    logs, driver = login_and_capture_logs()
-    print("Finished login_and_capture_logs()", flush=True)
-    
-    tokens = find_bearer_tokens(logs)
-    print(f"Tokens found in logs: {tokens}", flush=True)
-    
-    if tokens:
-        token = tokens[0]
-        print("Using Bearer token from logs:", flush=True)
-        print(token, flush=True)
-        response = update_resume_headline(token)
-    else:
-        print("No Bearer token found in logs; checking local storage...", flush=True)
-        token = extract_token_from_local_storage(driver)
-        if token:
-            print("Using token from local storage:", flush=True)
+    for user in USER_CONFIGS:
+        print(f"\nProcessing user: {user['username']}", flush=True)
+        logs, driver = login_and_capture_logs(user['username'], user['password'])
+        tokens = find_bearer_tokens(logs)
+        print(f"Tokens found in logs: {tokens}", flush=True)
+        
+        if tokens:
+            token = tokens[0]
+            print("Using Bearer token from logs:", flush=True)
             print(token, flush=True)
-            response = update_resume_headline(token)
+            response = update_resume_headline(token, user['profile_id'], user['base_bio'])
         else:
-            print("No token found in logs or local storage; using session cookies...", flush=True)
-            cookies = driver.get_cookies()
-            print("Cookies retrieved:", cookies, flush=True)
-            response = update_resume_headline_using_cookies(cookies)
-    
-    driver.quit()
-    
-    print("API Response Code:", response.status_code, flush=True)
-    print("API Response Body:", response.text, flush=True)
+            print("No Bearer token found in logs; checking local storage...", flush=True)
+            token = extract_token_from_local_storage(driver)
+            if token:
+                print("Using token from local storage:", flush=True)
+                print(token, flush=True)
+                response = update_resume_headline(token, user['profile_id'], user['base_bio'])
+            else:
+                print("No token found in logs or local storage; using session cookies...", flush=True)
+                cookies = driver.get_cookies()
+                print("Cookies retrieved:", cookies, flush=True)
+                response = update_resume_headline_using_cookies(cookies, user['profile_id'], user['base_bio'])
+        
+        driver.quit()
+        
+        print("API Response Code:", response.status_code, flush=True)
+        print("API Response Body:", response.text, flush=True)
 
 if __name__ == "__main__":
     main()
