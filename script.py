@@ -39,13 +39,18 @@ def login_and_capture_logs():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Set a fixed window size.
     chrome_options.add_argument("--window-size=1920,1080")
-    # Set a standard user-agent to mimic a normal desktop browser.
+    
+    # Set a standard user-agent.
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
     
-    # Use a unique temporary user-data directory to avoid conflicts.
+    # The following options help to avoid detection as an automated browser.
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    # Use a unique temporary user-data directory.
     user_data_dir = f"/tmp/chrome-user-data-{int(time.time())}"
     chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
     
@@ -62,45 +67,41 @@ def login_and_capture_logs():
         driver.get(Config.LOGIN_URL.value)
         wait = WebDriverWait(driver, 60)
         
-        # Try to locate and click the top-right login button.
+        # Try clicking the top-right login button.
         try:
             top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
             driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
             driver.execute_script("arguments[0].click();", top_login)
             print("Clicked the login button.")
         except TimeoutException as te:
-            print("Login button not found. Checking if already logged in...")
-            # If the login button is not found, try verifying if user is already logged in.
+            print("Login button not found; checking if already logged in.")
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
-                print("User appears already logged in; skipping login click.")
+                print("User already logged in; skipping login.")
             except TimeoutException:
-                print("Login button not found and user is not logged in. Exiting.")
+                print("Not logged in and login button missing; aborting.")
                 raise te
         
-        # Fill in the login form.
+        # Fill in login details.
         email_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.EMAIL_INPUT_FIELD.value)))
         password_field = wait.until(EC.visibility_of_element_located((By.XPATH, ButtonConfig.PASSWORD_INPUT_FIELD.value)))
         email_field.send_keys(Config.USERNAME.value)
         password_field.send_keys(Config.PASSWORD.value)
         
-        # Click the final login button.
+        # Click final login button.
         try:
             final_login = wait.until(EC.presence_of_element_located((By.XPATH, ButtonConfig.FINAL_LOGIN_BUTTON.value)))
             driver.execute_script("arguments[0].click();", final_login)
             print("Clicked the final login button.")
         except TimeoutException as te:
-            print("Final login button not found. Exiting.")
+            print("Final login button not found; aborting.")
             raise te
         
-        # Wait for login confirmation element.
+        # Wait for login confirmation.
         wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'nI-gNb-log-reg')]")))
         print("Login confirmed.")
         
-        # Allow extra time for network activity to be logged.
         time.sleep(5)
-        
-        # Retrieve performance logs.
         logs = driver.get_log("performance")
         return logs
     finally:
@@ -133,7 +134,6 @@ def update_resume_headline(token):
     else:
         updated_bio = base_bio.rstrip('.') if base_bio.endswith('.') else base_bio
     
-    # Ensure 'Bearer' appears only once.
     if token.startswith("Bearer "):
         auth_token = token
     else:
