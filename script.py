@@ -41,12 +41,15 @@ def login_and_capture_logs():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
+    # Set a standard user-agent.
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
-    # Options to help avoid automation detection.
+    # Additional flags to help avoid automation detection.
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
+    # Add remote debugging port.
+    chrome_options.add_argument("--remote-debugging-port=9222")
     
     # Use a unique temporary user-data directory.
     user_data_dir = f"/tmp/chrome-user-data-{int(time.time())}"
@@ -55,6 +58,7 @@ def login_and_capture_logs():
     # Set logging preferences via options.
     chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
     
+    # Specify binary location if needed.
     chrome_options.binary_location = os.getenv("CHROME_BIN", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     
     service = Service(ChromeDriverManager().install())
@@ -64,6 +68,7 @@ def login_and_capture_logs():
         driver.get(Config.LOGIN_URL.value)
         wait = WebDriverWait(driver, 60)
         
+        # Try clicking the top-right login button.
         try:
             top_login = wait.until(EC.presence_of_element_located((By.ID, ButtonConfig.TOP_RIGHT_LOGIN_BUTTON_ID.value)))
             driver.execute_script("arguments[0].scrollIntoView(true);", top_login)
@@ -96,17 +101,16 @@ def login_and_capture_logs():
         
         time.sleep(5)
         logs = driver.get_log("performance")
-        return logs, driver  # also return driver for fallback extraction
+        return logs, driver  # return driver for potential fallback extraction
     finally:
-        # Note: We'll not quit the driver here if we need it for fallback extraction.
+        # Note: Don't quit driver here if fallback extraction is needed.
         pass
 
 def extract_token_from_local_storage(driver):
-    # Attempt to get all keys from local storage
     keys = driver.execute_script("return Object.keys(window.localStorage);")
     for key in keys:
         value = driver.execute_script(f"return window.localStorage.getItem('{key}');")
-        # A basic heuristic: JWT tokens typically have two dots
+        # A simple heuristic: JWT tokens typically have two dots.
         if value and value.count('.') == 2 and len(value) > 100:
             print(f"Found possible JWT token in local storage under key '{key}': {value[:30]}...")
             return value
@@ -188,8 +192,8 @@ def main():
         print("No Bearer token found in logs; checking local storage...")
         token = extract_token_from_local_storage(driver)
     
-    driver.quit()  # now we can safely quit the driver
-
+    driver.quit()
+    
     if token:
         response = update_resume_headline(token)
         print("API Response Code:", response.status_code)
